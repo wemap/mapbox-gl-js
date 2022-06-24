@@ -25,7 +25,7 @@ import type DepthMode from '../gl/depth_mode.js';
 import type StencilMode from '../gl/stencil_mode.js';
 import type ColorMode from '../gl/color_mode.js';
 import type CullFaceMode from '../gl/cull_face_mode.js';
-import type {UniformBindings, UniformValues, UniformLocations} from './uniform_binding.js';
+import type {UniformBindings, UniformValues} from './uniform_binding.js';
 import type {BinderUniform} from '../data/program_configuration.js';
 
 export type DrawMode =
@@ -65,7 +65,7 @@ class Program<Us: UniformBindings> {
                 name: string,
                 source: {fragmentSource: string, vertexSource: string, staticAttributes: Array<string>, staticUniforms: Array<string>},
                 configuration: ?ProgramConfiguration,
-                fixedUniforms: (Context, UniformLocations) => Us,
+                fixedUniforms: (Context) => Us,
                 fixedDefines: string[]) {
         const gl = context.gl;
         this.program = gl.createProgram();
@@ -107,7 +107,7 @@ class Program<Us: UniformBindings> {
         }
         gl.shaderSource(fragmentShader, fragmentSource);
         gl.compileShader(fragmentShader);
-        assert(gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS), (gl.getShaderInfoLog(fragmentShader): any));
+        // assert(gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS), (gl.getShaderInfoLog(fragmentShader): any));
         gl.attachShader(this.program, fragmentShader);
 
         const vertexShader = gl.createShader(gl.VERTEX_SHADER);
@@ -117,11 +117,10 @@ class Program<Us: UniformBindings> {
         }
         gl.shaderSource(vertexShader, vertexSource);
         gl.compileShader(vertexShader);
-        assert(gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS), (gl.getShaderInfoLog(vertexShader): any));
+        // assert(gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS), (gl.getShaderInfoLog(vertexShader): any));
         gl.attachShader(this.program, vertexShader);
 
         this.attributes = {};
-        const uniformLocations = {};
 
         this.numAttributes = allAttrInfo.length;
 
@@ -133,28 +132,18 @@ class Program<Us: UniformBindings> {
         }
 
         gl.linkProgram(this.program);
-        assert(gl.getProgramParameter(this.program, gl.LINK_STATUS), (gl.getProgramInfoLog(this.program): any));
+        // assert(gl.getProgramParameter(this.program, gl.LINK_STATUS), (gl.getProgramInfoLog(this.program): any));
 
         gl.deleteShader(vertexShader);
         gl.deleteShader(fragmentShader);
 
-        for (let it = 0; it < allUniformsInfo.length; it++) {
-            const uniform = allUniformsInfo[it];
-            if (uniform && !uniformLocations[uniform]) {
-                const uniformLocation = gl.getUniformLocation(this.program, uniform);
-                if (uniformLocation) {
-                    uniformLocations[uniform] = uniformLocation;
-                }
-            }
-        }
-
-        this.fixedUniforms = fixedUniforms(context, uniformLocations);
-        this.binderUniforms = configuration ? configuration.getUniforms(context, uniformLocations) : [];
+        this.fixedUniforms = fixedUniforms(context);
+        this.binderUniforms = configuration ? configuration.getUniforms(context) : [];
         if (fixedDefines.indexOf('TERRAIN') !== -1) {
-            this.terrainUniforms = terrainUniforms(context, uniformLocations);
+            this.terrainUniforms = terrainUniforms(context);
         }
         if (fixedDefines.indexOf('FOG') !== -1) {
-            this.fogUniforms = fogUniforms(context, uniformLocations);
+            this.fogUniforms = fogUniforms(context);
         }
     }
 
@@ -166,7 +155,7 @@ class Program<Us: UniformBindings> {
         context.program.set(this.program);
 
         for (const name in terrainUniformValues) {
-            uniforms[name].set(terrainUniformValues[name]);
+            uniforms[name].set(this.program, name, terrainUniformValues[name]);
         }
     }
 
@@ -179,7 +168,7 @@ class Program<Us: UniformBindings> {
 
         for (const name in fogUniformsValues) {
             if (uniforms[name].location) {
-                uniforms[name].set(fogUniformsValues[name]);
+                uniforms[name].set(this.program, name, fogUniformsValues[name]);
             }
         }
     }
@@ -212,11 +201,11 @@ class Program<Us: UniformBindings> {
         context.setCullFace(cullFaceMode);
 
         for (const name of Object.keys(this.fixedUniforms)) {
-            this.fixedUniforms[name].set(uniformValues[name]);
+            this.fixedUniforms[name].set(this.program, name, uniformValues[name]);
         }
 
         if (configuration) {
-            configuration.setUniforms(context, this.binderUniforms, currentProperties, {zoom: (zoom: any)});
+            configuration.setUniforms(this.program, context, this.binderUniforms, currentProperties, {zoom: (zoom: any)});
         }
 
         const primitiveSize = {
